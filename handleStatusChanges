@@ -1,0 +1,158 @@
+// Handles changes of the status of an application
+// Status can be Pending (yet to be processed), Waitlist, Conditionally Accepted, Accepted, and Withdrawal
+function handleStatusChanges() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rawDataSheet = ss.getSheetByName('Raw Application Data');
+  var resultsSheet = ss.getSheetByName('Application Results');
+  var masterTracker = ss.getSheetByName('Cohort Master Tracker');
+  var waitlist = ss.getSheetByName('Cohort Waitlist');
+
+  // Access data from each sheet
+  var rawData = rawDataSheet.getDataRange().getValues();
+  var resultsData = resultsSheet.getDataRange().getValues();
+  var masterTrackerData = masterTracker.getDataRange().getValues();
+  var waitlistData = waitlist.getDataRange().getValues();
+
+  // NOTE: Column numbers do NOT follow zero-indexing
+  var statusColumn = 2; 
+  var orgNameColumnInResults = 3; 
+  var cohortColumnInResults = 4; 
+  var orgNameColumnInRaw = 6; 
+  var cohortColumnInRaw = 2; 
+
+  for (var i = 1; i < resultsData.length; i++) {
+    var orgNameToSearch = resultsData[i][orgNameColumnInResults - 1];
+    var cohortToSearch = resultsData[i][cohortColumnInResults - 1];
+    
+    // Find the corresponding row in the Raw Application Data sheet based on Org Name and Cohort Name
+    var rawDataRow = rawData.find(function(row) {
+      return row[orgNameColumnInRaw - 1] === orgNameToSearch && row[cohortColumnInRaw - 1] === cohortToSearch;
+    });
+
+    if (!rawDataRow) {
+      continue; // If the organization doesn't exist, skip this iteration
+    }
+
+    // CASE: status is changed to Accepted
+    if (resultsData[i][statusColumn - 1] === 'Accepted') {
+      // Check if the row already exists in the Master Tracker sheet
+      var rowExistsInMasterTracker = masterTrackerData.find(function(row) {
+        return row[orgNameColumnInResults - 1] === orgNameToSearch && row[cohortColumnInResults - 1] === cohortToSearch;
+      });
+
+      if (rowExistsInMasterTracker) continue;
+
+      // Column Mapping
+      var orgName = rawDataRow[orgNameColumnInRaw - 1];
+      var partners = resultsData[i][9];
+      var cohortName = rawDataRow[cohortColumnInRaw - 1];
+      var parts = cohortName.trim().split(" ");
+      var year = parts.pop();
+      var name = rawDataRow[2];
+      var role = rawDataRow[6];
+      var email = rawDataRow[3];
+      var location = rawDataRow[7];
+      var region = rawDataRow[9];
+      var province = rawDataRow[11];
+      var country = rawDataRow[10];
+      var serviceRange = rawDataRow[13];
+      var budget = rawDataRow[18];
+      var bankingInfo = rawDataRow[35];
+      var fullTime = rawDataRow[19];
+      var partTime = rawDataRow[20];
+      var volunteer = rawDataRow[21];
+      var website = rawDataRow[14];
+      var mission = rawDataRow[22];
+      var sector1 = rawDataRow[15];
+      var sector2 = rawDataRow[16];
+      var sector3 = rawDataRow[17];
+      var sdg1 = rawDataRow[45];
+      var sdg2 = rawDataRow[46];
+      var sdg3 = rawDataRow[47];
+      var sdg4 = rawDataRow[48];
+
+      var rowData = [orgName, partners, cohortName, year, name, role, email, location, region, province, country, serviceRange, budget, bankingInfo, fullTime, partTime, volunteer, website, mission, sector1, sector2, sector3, sdg1, sdg2, sdg3, sdg4];
+
+      // Add the organization to the Master Tracker
+      masterTracker.appendRow(rowData);
+
+    } else if (resultsData[i][statusColumn - 1] === 'Waitlist') { 
+
+      // Check if the row already exists in the Waitlist sheet
+      var rowExistsInWaitlist = waitlistData.find(function(row) {
+        return row[0] === orgNameToSearch; // Assuming Org Name is in the first column of Waitlist
+      });
+
+      // Don't add the organization to the waitlist if it is already on the waitlist
+      if (rowExistsInWaitlist) continue;
+
+      var orgName = rawDataRow[orgNameColumnInRaw - 1];
+      var name = rawDataRow[2];
+      var email = rawDataRow[3];
+      var current_date = new Date();
+      var rowData = [orgName, name, email, current_date];
+
+      // Add the organzation to the waitlist
+      waitlist.appendRow(rowData);
+    }
+  } 
+}
+
+// Remove an organization from a sheet
+function removeRow(sheet, searchValue, searchCohort) {
+  var data = sheet.getDataRange().getValues();
+
+  // If removing from the Master Tracker, locate the org using the org name and cohort
+  if (sheet.getName() == 'Cohort Master Tracker') {
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === searchValue && data[i][2] === searchCohort) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+  } else {
+    // If removing from other sheets, locate the org using just the org name
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === searchValue) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+  }
+}
+
+// Triggers specific functions based on the value the "Status" column is changed to
+function onEdit(e) {
+  var sheet = e.source.getActiveSheet();
+  var range = e.range;
+
+  // NOTE: these column numbers are NOT zero-indexed
+  var statusColumn = 2;
+  var orgNameColumn = 3;
+  var cohortColumn = 4;
+  
+  if (range.getColumn() == statusColumn) {
+    var row = range.getRow();
+    var newStatus = sheet.getRange(row, statusColumn).getValue();
+    var orgName = sheet.getRange(row, orgNameColumn).getValue();
+    var cohortName = sheet.getRange(row, cohortColumn).getValue();
+
+    // Access the previous status it was changed from
+    var oldStatus = e.oldValue;
+
+    var masterTracker = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Cohort Master Tracker');
+    var waitlist = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Cohort Waitlist');
+
+    // Remove value from Waitlist or Master Tracker
+    if ((oldStatus === "Accepted") && (newStatus !== "Accepted")) {
+      removeRow(masterTracker, orgName, cohortName);
+    } else if ((oldStatus === "Waitlist") && (newStatus !== "Waitlist")) {
+      removeRow(waitlist, orgName, cohortName);
+    } 
+
+    // Transfer to Waitlist or Master Tracker if Waitlisted/Accepted
+    if (newStatus === "Accepted" || newStatus === "Waitlist") {
+      handleStatusChanges();
+    }
+  }
+}
